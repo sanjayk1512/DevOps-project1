@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    stages {
+        // Step-1: Clone GitHub Repository
+        stage('Clone Repo') {
+            steps {
+                git credentialsId: 'GIT-Credentials', url: 'https://github.com/suffixscope/maven-web-app.git'
+            }
+        }
+
+        // Step-2: Maven Build Stage
+        stage('Maven Build') {
+            steps {
+                script {
+                    def mavenHome = tool name: "Maven-3.9.9", type: "maven"
+                    def mavenCMD = "${mavenHome}/bin/mvn"
+                    sh "${mavenCMD} clean package"
+                }
+            }
+        }
+
+        // Step-3: SonarQube Analysis Stage
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonarQube') {  // Ensure 'sonarQube' is configured in Jenkins
+                    script {
+                        def mavenHome = tool name: "Maven-3.9.9", type: "maven"
+                        def mavenCMD = "${mavenHome}/bin/mvn"
+                        sh "${mavenCMD} sonar:sonar"
+                    }
+                }
+            }
+        }
+
+        // Step-4: Nexus Upload Stage
+        stage('Nexus Upload') {
+            steps {
+                nexusArtifactUploader artifacts: [[
+                    artifactId: '01-Maven-Web-App',
+                    classifier: '',
+                    file: 'target/maven-web-app.war',
+                    type: 'war'
+                ]],
+                credentialsId: 'Nexus-Credentials',
+                groupId: 'org.scopeindia',
+                nexusUrl: '13.201.11.124:8081',
+                nexusVersion: 'nexus3',
+                protocol: 'http',
+                repository: 'maven-releases',
+                version: '1.2-RELEASE'
+            }
+        }
+
+        // Step-5: Deploy to Tomcat using SSH-Agent and SCP
+        stage('Deploy to Tomcat') {
+            steps {
+                sshagent(['Tomcat-Server-Agent']) {
+                    sh """
+                    scp -o StrictHostKeyChecking=no target/maven-web-app.war ec2-user@172.31.3.79:/opt/tomcat/webapps
+                    """
+                }
+            }
+        }
+    }
+}
